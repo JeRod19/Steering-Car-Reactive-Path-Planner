@@ -1,593 +1,371 @@
 import cv2 
 import numpy as np
 import math as m
-from copy import deepcopy
 
 from matplotlib import pyplot as plt
 from matplotlib.animation import PillowWriter
+from copy import deepcopy
+import time
+import threading
 
 
+class nodeClass:
+    def __init__(self, complexCost, movementCost, y, x, orient, direction, prevNode = None):
+        self.complexCost = complexCost
+        self.movementCost = movementCost
+        self.y = y
+        self.x = x
+        self.orient = orient
+        self.direction = direction
+        self.prevNode = prevNode
 
-def Skernel(size):
-    if size % 2 == 0:
-        return None
-    c = size//2
-    kernel = np.zeros((size, size))
-    for i in range(size):
-        for j in range(size):
-            if abs(c-i) > abs(c-j):
-                if i % 2 == 0:
-                    v = 1 + c - abs(c-i)
-                else:
-                    v = 0
-            else:
-                if j % 2 == 0:
-                    v = 1 + c - abs(c-j)
-                else:
-                    v = 0
-            kernel[i, j] = v
-                
-    return kernel / np.sum(kernel)
-
-def Kernel(size):
-    if size % 2 == 0:
-        return None
-    c = size//2
-    kernel = np.zeros((size, size))
-    for i in range(size):
-        for j in range(size):
-            if abs(c-i) > abs(c-j):
-                v = 1 + c - abs(c-i)
-            else:
-                v = 1 + c - abs(c-j)
-            kernel[i, j] = v
-                
-    return kernel / np.sum(kernel)
-
-
-class plan:
-
-    def __init__(self, grid, goal, cost = 1):
-        self.cost = cost
-        self.goal = goal
-        self.make_heuristic(grid, goal)
-        self.path = []
-        self.spath = []
-        
-
-    def make_heuristic(self, grid, goal):
-        self.heuristic = np.zeros(grid.shape)
-        
-        for row in range(grid.shape[0]):
-            for col in range(grid.shape[1]):
-                    self.heuristic[row,col] = m.sqrt(m.pow(goal[0]-row,2) + m.pow(goal[1]-col,2))
-        
-        ##self.heuristic /= self.heuristic.max()
-        self.heuristic
-
-    def quick_search_heuristic(self, grid, Arobot, goal):
-        heuristic = np.zeros(grid.shape)
-        
-        finish = False
-        width = int(Arobot.width * 2)
-        
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(width,width))####
-        freeGrid = cv2.filter2D(grid,-1,kernel)
-        
-        delta = [
-            [0, 1],
-            [1, 0],
-            [0, -1],
-            [-1, 0]
-            ]
-        
-        nodes_list = [[0, goal[0], goal[1]]]
-        
-        while not finish:
-            if len(nodes_list) == 0:
-                finish = True
-                print('###### Search terminated without success')
-                return
-                
-            else:
-                
-                # remove node from list
-                nodes_list.sort()
-                nodes_list.reverse()
-                node = nodes_list.pop()
-                
-                cost, y, x = node
-                
-                for move in delta:
-                    x2 = x + delta[1]
-                    y2 = y + delta[0]
-                    
-                    if y2 >= 0 and y2 < len(self.grid) and x2 >= 0 and x2 < len(self.grid[0]):
-                        if freeGrid[y2, x2] == 0:
-                            nodes_list.append([cost+1, y2, x2])
-                        
-                        
-                
-                    
-                    
-                    
-                
-            
-            
-            
-        
-        
-        
-        
-        
-
-
-    def compute_path(self, senseMap, Arobot, fig = None, ax = None):
-        
-        if self.heuristic == []:
-            print("Heuristic must be defined to run A*")
-            return 0
-        
-        robot = deepcopy(Arobot)
-        robot.set_noise(0,0,0)
-        self.grid = senseMap.grid
-        mask = 1 - self.grid
-        
-        # radiation = cv2.GaussianBlur(self.grid, (15, 15), 15) * 1.3
-        # radiation = cv2.GaussianBlur(radiation, (15, 15), 15)
-
-        # radiation *= mask * self.heuristic.max()
-        
-        k = Skernel(13)
-        radiation = cv2.filter2D(self.grid*1.5, ddepth=-1, kernel=k)
-        
-        radiation = radiation * mask + self.grid*1.5
-        radiation = cv2.filter2D(src=radiation, ddepth=-1, kernel=k)
-        
-        k = Kernel(7)
-        radiation = cv2.filter2D(src=radiation, ddepth=-1, kernel=k) * self.heuristic.max()
-        
-        self.H = self.heuristic * mask 
-        
-        p = 2 #.4
-        self.H += p*radiation 
-
-
-        
-        if not fig == None:
-            writer = PillowWriter(fps = 20, bitrate = 640000)
-            writer.setup(fig, r'C:\Users\JRodr\Automated_system\Virtual_Robot\search_path.gif', dpi=100)
-        
-        node = 0
-        robotDist = 10
-        deg2rad = m.pi/180
-        
-        orient_range = 30 * deg2rad
-        orient_segments = int(2 * m.pi / orient_range)
-
-        # internal steering possibilities
-        delta = np.linspace(-m.pi/4, m.pi/4, 9)
-        delta = np.sort(abs(delta))
-        for i in range(2, len(delta), 2):
-            delta[i] *= -1
-            
-        
-        states_size = (self.grid.shape[0], self.grid.shape[1], int(2 * m.pi / orient_range))
-        self.closed = np.zeros(states_size)
-        action = np.zeros(states_size)
-
-        init = [robot.y, robot.x, robot.orientation]
-        y = init[0]
-        x = init[1]
-        orient = init[2] #int((init[2] + (orient_range / 2)) // orient_range)
-        h = self.H[int(y),int(x)]
-        g = 0
-        f = g + h
-
-        open = [[f, g, h, y, x, orient]]
-
-        found  = False # flag that is set when search complete
-        resign = False # flag set if we can't find expand
-        count  = 0
-        
-        self.closed[int(y),int(x), int(((orient + (orient_range / 2)) // orient_range) % orient_segments)] = 1        
-
-        # with writer.saving(self.figure, r'C:\Users\JRodr\Automated_system\Virtual_Robot\search_path.gif', dpi=100):
-        while not found and not resign:
-
-            # check if we still have elements on the open list
-            if len(open) == 0:
-                resign = True
-                print('###### Search terminated without success')
-                return
-                
-            else:
-                # remove node from list
-                open.sort()
-                open.reverse()
-                next = open.pop()
-                y = next[3]
-                x = next[4]
-                orient = next[5]
-                g = next[1]
-                node += 1
-
-            # check if we are done
-
-            if abs(y - self.goal[0]) < 3 and abs(x - self.goal[1]) < 3:
-                found = True
-                # print '###### A* search successful'
-
-            else:
-                
-                # expand winning element and add to new open list
-                for steering in delta:
-                    robot.set(x, y, orient)
-                    robot.num_collisions = 0
-                    robot = robot.move(self.grid, steering, robotDist)
-                    
-                    y2 = robot.y
-                    x2 = robot.x
-                    orient2 = robot.orientation #int((robot.orientation + (orient_range / 2)) // orient_range)
-                    colission = robot.num_collisions
-                    
-                    YBin = int(y2)
-                    XBin = int(x2)
-                    OrientBin = int(((orient2 + (orient_range / 2)) // orient_range) % orient_segments)
-
-                    if y2 >= 0 and y2 < len(self.grid) and x2 >= 0 and x2 < len(self.grid[0]):
-                        if self.closed[YBin, XBin, OrientBin] == 0 and self.grid[YBin, XBin] == 0 and colission == 0:
-                            g2 = g + self.cost * 1 + self.closed[YBin-3:YBin+4, XBin-3:XBin+4, :].sum() * 0.6 #(1 + 2 *abs(steering))
-                            h2 = self.H[int(y2), int(x2)]
-                            f2 = g2 + h2
-                            open.append([f2, g2, h2, y2, x2, orient2])
-                            self.closed[YBin, XBin, OrientBin] = 1
-                            action[YBin, XBin, OrientBin] = steering
-                        else:
-                            print(f"Close or collision: Node {node} cost{g} steer {steering} - > {YBin}, {XBin}, {OrientBin} collision = {colission}")
-                    else:
-                        print(f"Out of map: {y2}, {x2}, {orient2} collision = {colission}")
-                            
-            if count % 100 == 0 and not ax == None:
-                ax.cla()
-                expansion = self.closed.sum(2) / orient_segments
-                expansion += self.grid
-                ax.imshow(expansion, origin = 'lower')
-                plt.pause(0.0001)
-                writer.grab_frame()
-            count += 1
-
-        # extract the path
-        
-        if not ax == None:
-            ax.cla()
-            expansion = self.closed.sum(2) / orient_segments
-            expansion += self.grid
-            expansion[int(self.goal[0]), int(self.goal[1])] = 1
-            ax.imshow(expansion, origin = 'lower')
-            plt.pause(0.0001)
-            writer.grab_frame()
-
-        self.invpath = []
-        self.invpath.append([y, x])
-        robot.set(x, y, orient)
-        while abs(y - init[0]) > 5 or abs(x - init[1]) > 5:
-            YBin = int(y)
-            XBin = int(x)
-            OrientBin = int(((orient + (orient_range / 2)) // orient_range) % orient_segments)
-            steering = action[YBin, XBin, OrientBin]
-            robot = robot.move(self.grid, steering, -robotDist)
-                    
-            y = robot.y
-            x = robot.x
-            orient = robot.orientation
-
-            self.invpath.append([y, x])
-
-        self.path = []
-        for i in range(len(self.invpath)):
-            self.path.append(self.invpath[len(self.invpath) - 1 - i])
-                        
-        self.path = np.array(self.path)
-        
-        if not ax == None:
-            ax.plot(self.path[:,1], self.path[:,0])
-            writer.grab_frame()
-            writer.finish()
-        
-        
-        n = len(self.path)
-        kernel = np.ones((7,1)) / 7
-        self.path[1:n-1,:] = cv2.filter2D(self.path[1:n-1,:], -1, kernel)
-        if not ax == None:
-            ax.plot(self.path[:,1], self.path[:,0])
-            plt.pause(0.0001)
-
-        return self.smooth(0.1, 0.3)
-        
-
-
-    def smooth(self, weight_data = 0.1, weight_smooth = 0.1, 
-                tolerance = 0.000001):
+        if prevNode == None:
+            self.noReverseMovements = 0
+        else:
+            self.noReverseMovements = prevNode.noReverseMovements
     
-    
-        self.spath = self.path.copy()
-    
-        change = tolerance
-        while change >= tolerance:
-            change = 0.0
-            for i in range(1, len(self.path)-1):
-                for j in range(len(self.path[0])):
-                    aux = self.spath[i,j]
-                    
-                    self.spath[i,j] += weight_data * (self.path[i,j] - self.spath[i,j])
-                    
-                    self.spath[i,j] += weight_smooth * (self.spath[i-1,j] + self.spath[i+1,j] - (2.0 * self.spath[i,j]))
-                    
-                    if i >= 2:
-                        self.spath[i,j] += 0.5 * weight_smooth * (2 * self.spath[i-1,j] - self.spath[i-2,j] - self.spath[i,j])
-                    if i <= len(self.path) - 3:
-                        self.spath[i,j] += 0.5 * weight_smooth * (2 * self.spath[i+1,j] - self.spath[i+2,j] - self.spath[i,j])
-                
-                    change += abs(aux - self.spath[i,j])
-        
-        return self.spath
-                
-
+    def __lt__(self, other):
+        return self.complexCost < other.complexCost
 
 class plan_with_reverse:
 
-    def __init__(self, grid, goal, cost = 1):
+    def __init__(self, grid, goal, cost = 1, minWidth = 10):
         self.cost = cost
         self.goal = goal
-        self.make_heuristic(grid, goal)
+        self.minWidth = minWidth
+        self.grid = grid.copy()
+        self.maxODGM_distance = 15
+        self.compute_first_ODGM(grid)
+        self.compute_first_GDM(grid, minWidth, goal)
         self.path = []
         self.spath = []
         
 
-    def make_heuristic(self, grid, goal):
-        self.heuristic = np.zeros(grid.shape)
+        if False:
+            fig, ax = plt.subplots(2, 2)
+            ax[0,0].imshow(grid, origin = 'lower')
+            ax[0,1].imshow(self.maxODGM_distance - self.ODGM, cmap = 'gray', origin = 'lower')
+            ax[1,0].imshow(self.GDM, cmap = 'gray', origin = 'lower', vmin = 0, vmax = 390)
+            ax[1,0].scatter(goal[1], goal[0], c="red", s = 5)
+            final = 1 + 0.5*((self.maxODGM_distance - self.ODGM) / self.maxODGM_distance)
+            ax[1,1].imshow(self.GDM * final, cmap = 'gray', origin = 'lower', vmin = 0, vmax = 420) #vmax = np.unique(self.GDM)[-2]
+            ax[1,1].scatter(goal[1], goal[0], c="red", s = 5)
+            plt.show()
+            plt.pause(0.001)
+            pass
+            # plt.close()
         
-        for row in range(grid.shape[0]):
-            for col in range(grid.shape[1]):
-                    self.heuristic[row,col] = m.sqrt(m.pow(goal[0]-row,2) + m.pow(goal[1]-col,2))
-        
-        ##self.heuristic /= self.heuristic.max()
-        self.heuristic *= 1.2
+##########################################################
+####################### Heuristics #######################
+##########################################################
 
+    def compute_first_ODGM(self, grid):
+        self.ODGM = np.ones(grid.shape) * self.maxODGM_distance
+
+        nodesToExpand = self.getNewObstacles(grid)
+ 
+        closed_nodes = self.getClosedNodesGrid(nodesToExpand)
+
+        while(len(nodesToExpand) > 0):
+            node = nodesToExpand.pop(0)
+
+            dist = np.sqrt( (node[1] - node[3][0])**2 + (node[2] - node[3][1])**2 )
+            if self.updateCurrentODGMNode(nodeDist = dist, nodeRow = node[1], nodeCol = node[2]):
+                [newNodes, closed_nodes] = self.addNewNodes(nodeToExpand = node, closed_nodes = closed_nodes)
+                nodesToExpand += newNodes
+                
+        # self.maxODGM_distance = np.max(self.ODGM)
+
+    def getNewObstacles(self, grid):
+        newObstaclesNodes = []
+
+        for row in range(self.grid.shape[0]):
+            for col in range(self.grid.shape[1]):
+                if grid[row, col] == 1:
+                    origin = [row, col]
+                    newObstaclesNodes.append([0, row, col, origin])
+
+        return newObstaclesNodes
+
+    def getClosedNodesGrid(self, nodesToExpand):
+        closed_nodes = np.zeros((int(np.ceil(self.grid.shape[0])), int(np.ceil(self.grid.shape[1]))))
+
+        for [_, row, col, _] in nodesToExpand:
+            closed_nodes[row, col] = 1
+        
+        return closed_nodes
+
+    def updateCurrentODGMNode(self, nodeDist, nodeRow, nodeCol):
+        if nodeDist < self.ODGM[nodeRow, nodeCol]:
+            self.ODGM[nodeRow, nodeCol] = nodeDist
+            return True
+        else:
+            return False
+
+    def nodeInsideGrid(self, row, col):
+        if  row >= 0 and row < self.grid.shape[0] and col >= 0 and col < self.grid.shape[1]:
+            return True
+        else:
+            return False
+        
+    def nodeIsNotObstacle(self, row, col):
+        if  self.grid[row, col] == 0:
+            return True
+        else:
+            return False
+
+    def addNewNodes(self, nodeToExpand, closed_nodes):
+        expandedNodes = []
+
+        for [i, j] in [[-1, 0], [1, 0], [0, 1], [0, -1]]:
+            row = nodeToExpand[1] + i
+            col = nodeToExpand[2] + j
+            dist = np.sqrt( (row - nodeToExpand[3][0])**2 + (col - nodeToExpand[3][1])**2 )
+
+
+            if self.nodeInsideGrid(row, col) and closed_nodes[row, col] == 0 and dist < self.ODGM[row, col] and self.nodeIsNotObstacle(row, col):
+                closed_nodes[row, col] = 1
+
+                expandedNodes.append([dist, row, col, nodeToExpand[3]])
+        
+        return expandedNodes, closed_nodes             
+            
+    def update_ODGM(self, newGrid):
+        nodesToExpand = self.getNewObstacles(newGrid - self.grid)
+ 
+        closed_nodes = self.getClosedNodesGrid(nodesToExpand)
+
+        while(len(nodesToExpand) > 0):
+            node = nodesToExpand.pop(0)
+
+            dist = np.sqrt( (node[1] - node[3][0])**2 + (node[2] - node[3][1])**2 )
+            if self.updateCurrentODGMNode(nodeDist = dist, nodeRow = node[1], nodeCol = node[2]):
+                [newNodes, closed_nodes] = self.addNewNodes(nodeToExpand = node, closed_nodes = closed_nodes)
+                nodesToExpand += newNodes
+
+
+    def compute_first_GDM(self, grid, winSize, goal):
+        self.GDM = np.ones(grid.shape) * grid.size
+        winSize = int(np.ceil(winSize / 2)) + 1 
+
+        nodes = []
+        nodes.append([0, int(goal[0]), int(goal[1])])
+        closed_nodes = np.zeros(grid.shape)
+        closed_nodes[int(goal[0]), int(goal[1])] = 1
+
+        while(len(nodes) > 0):
+            [d, row, col] = nodes.pop(0)
+
+            if grid[max(0,row-winSize):min(row+winSize, grid.shape[0]), max(0,col-winSize):min(col+winSize, grid.shape[1])].sum() > 0:
+                continue
+            
+            self.GDM[row, col] = d
+
+            for [i, j] in [[-1, 0], [1, 0], [0, 1], [0, -1]]:
+                row2 = row + i
+                col2 = col + j
+                
+                if self.nodeInsideGrid(row2, col2) and closed_nodes[row2, col2] == 0 and grid[row2, col2] == 0:
+                    nodes.append([d+1, row2, col2])
+                    closed_nodes[row2, col2] = 1
+        
+        
+
+    def update_heuristics(self, senseMap):
+
+        self.update_ODGM(senseMap.grid)
+        self.compute_first_GDM(senseMap.grid, self.minWidth, self.goal)
+
+        if False:
+            fig, ax = plt.subplots(2, 2)
+            ax[0,0].imshow(senseMap.grid, origin = 'lower')
+            ax[0,1].imshow(self.ODGM, cmap = 'gray', origin = 'lower')
+            ax[1,0].imshow(self.GDM, cmap = 'gray', origin = 'lower')
+            final = 1 + 0.5*((self.maxODGM_distance - self.ODGM) / self.maxODGM_distance)
+            ax[1,1].imshow(self.GDM * final, cmap = 'gray', origin = 'lower')
+            plt.show()
+            plt.pause(0.0001)
+            # plt.close()
+
+        #update2
+
+        self.grid = senseMap.grid
+
+##########################################################
+##################### Path planning ######################
+##########################################################
+
+    def expandNode(self, openNodes, robot, steerings, directions):
+        # Sort and take node to expand
+        if len(openNodes) == 0:
+            return None
+        
+        openNodes.sort()
+        currNode = openNodes.pop(0)
+    
+        # Get node attributes
+        g = currNode.movementCost
+        y = currNode.y
+        x = currNode.x
+        orient = currNode.orient
+        direct = currNode.direction
+
+         # check if we are done
+        if abs(y - self.goal[0]) <= 3 and abs(x - self.goal[1]) <= 3:
+            global finishNode
+            finishNode = currNode
+
+
+        robotDist = robot.length * 0.8
+        orient_segments = self.closed.shape[2]
+        orient_range = 2 * m.pi / orient_segments
+
+        # Check if zone is over explored to skip
+        size = 3
+
+        yd = max(int(y)-size, 0)
+        yu = min(int(y)+size+1, len(self.grid))
+        xd = max(int(x)-size, 0)
+        xu = min(int(x)+size+1, len(self.grid[0]))
+
+        zone_proggress = self.closed[yd:yu, xd:xu, :].sum()
+        if zone_proggress > orient_segments * size * size * 0.8:
+            return None
+        
+        for direct in directions:
+            for steer in steerings:
+                robot.set(x, y, orient)
+                robot.num_collisions = 0
+                robot = robot.move(self.grid, steer, robotDist * direct)
+
+                y2 = robot.y
+                x2 = robot.x
+                orient2 = robot.orientation 
+                colission = robot.num_collisions
+
+                YBin = int(y2)
+                XBin = int(x2)
+                OrientBin = int(((orient2 + (orient_range / 2)) // orient_range) % orient_segments)
+                
+                if self.nodeInsideGrid(y2, x2):
+                    if self.closed[YBin, XBin, OrientBin] == 0 and self.grid[YBin, XBin] == 0 and colission == 0:
+                        reverse_cost =  1 + 5 * (1 - direct) * currNode.noReverseMovements
+                        steering_cost = abs(steer)
+
+                        g2 = g + (self.cost + steering_cost * 2) * reverse_cost 
+                    
+                        h2 = self.heuristic[YBin, XBin]
+                        
+                        f2 = g2 + h2
+
+                        auxNode = nodeClass(
+                            complexCost = f2,
+                            movementCost = g2, 
+                            y = y2, 
+                            x = x2, 
+                            orient = orient2, 
+                            direction = direct,
+                            prevNode = currNode
+                        )
+
+                        if direct == -1:
+                            auxNode.noReverseMovements += 1
+
+                        openNodes.append(auxNode)
+                        self.closed[YBin, XBin, OrientBin] = 1
+        return None    
 
     def compute_path(self, senseMap, Arobot, fig = None, ax = None):
-        
-        if self.heuristic == []:
-            print("Heuristic must be defined to run A*")
-            return 0
-        
+        start = time.time()
         robot = deepcopy(Arobot)
         robot.set_noise(0,0,0)
-        self.grid = senseMap.grid
-        mask = 1 - self.grid
+        self.grid = senseMap.grid.copy()
         
-        # radiation = cv2.GaussianBlur(self.grid, (15, 15), 15) * 1.3
-        # radiation = cv2.GaussianBlur(radiation, (15, 15), 15)
-
-        # radiation *= mask * self.heuristic.max()
+        self.heuristic = (1 + 0.25*((self.maxODGM_distance - self.ODGM) / self.maxODGM_distance)) * self.GDM ** 1
         
-        k = Skernel(13)
-        radiation = cv2.filter2D(self.grid*1.5, ddepth=-1, kernel=k)
-        
-        radiation = radiation * mask + self.grid*1.5
-        radiation = cv2.filter2D(src=radiation, ddepth=-1, kernel=k)
-        
-        k = Kernel(7)
-        radiation = cv2.filter2D(src=radiation, ddepth=-1, kernel=k) * self.heuristic.max()
-        
-        self.heuristic *= mask    
-        self.radiation = radiation * mask
-
-
-        
-        if not fig == None:
-            writer = PillowWriter(fps = 20, bitrate = 640000)
-            writer.setup(fig, r'C:\Users\JRodr\Automated_system\Virtual_Robot\search_path.gif', dpi=100)
-        
-        node = 0
-        robotDist = robot.length * 1.5
-        deg2rad = m.pi/180
-        
-        orient_range = 20 * deg2rad
+        # possible porientations for robot
+        orient_range = 10 * m.pi / 180
         orient_segments = int(2 * m.pi / orient_range)
 
         # internal steering possibilities
-        delta = np.linspace(-m.pi/4, m.pi/4, 9)
-        delta = np.sort(abs(delta))
-        
-        directions = [1, 1]
-        
-        for i in range(2, len(delta), 2):
-            delta[i] *= -1
-            
-        
-        states_size = (self.grid.shape[0], self.grid.shape[1], orient_segments, len(directions))
-        self.closed = np.zeros(states_size[0:3])
-        action = np.zeros(states_size)
+        steerings = np.linspace(-m.pi/4, m.pi/4, 9)
+        steerings = np.sort(abs(steerings)) 
+        for i in range(2, len(steerings), 2):
+            steerings[i] *= -1
 
-        init = [robot.y, robot.x, robot.orientation]
-        y = init[0]
-        x = init[1]
-        orient = init[2] #int((init[2] + (orient_range / 2)) // orient_range)
+        directions = [1, -1]
+        
+        y = robot.y
+        x = robot.x
+        orient = robot.orientation
         h = self.heuristic[int(y),int(x)]
         g = 0
         f = g + h
 
-        open = [[f, g, h, y, x, orient]]
+        openNodes = []
+        openNodes.append(
+            nodeClass(
+            complexCost = f,
+            movementCost = g, 
+            y = y, 
+            x = x, 
+            orient = orient, 
+            direction = 0
+            )
+        )
 
         found  = False # flag that is set when search complete
         resign = False # flag set if we can't find expand
         count  = 0
-        
+        self.closed = np.zeros((self.grid.shape[0], self.grid.shape[1], orient_segments))
         self.closed[int(y),int(x), int(((orient + (orient_range / 2)) // orient_range) % orient_segments)] = 1        
 
-        # with writer.saving(self.figure, r'C:\Users\JRodr\Automated_system\Virtual_Robot\search_path.gif', dpi=100):
+        global finishNode
+        finishNode = None
+        threadsList = list()
+
         while not found and not resign:
 
             # check if we still have elements on the open list
-            if len(open) == 0:
-                resign = True
-                print('###### Search terminated without success')
-                return
-                
+            if len(openNodes) == 0 :
+                if  len(threading.enumerate()) == 0:
+                    resign = True
+                    print('###### Search terminated without success')
+                    return
+                else:
+                    print(f"Threads remain: {len(threading.enumerate())}")
             else:
-                # remove node from list
-                open.sort()
-                open.reverse()
-                next = open.pop()
-                y = next[3]
-                x = next[4]
-                orient = next[5]
-                g = next[1]
-                node += 1
-            
-            # node_proggress = self.closed[int(y),int(x), :].sum()
-            # if node_proggress > orient_segments * 0.85:
-            #     continue
-            # a = 0
-            # if y < 10 and x < 10:
-            #     a = 1
-            #     continue
-            size = 5
-            yd = int(y)-size
-            if yd < 0: yd = 0
-            
-            yu = int(y)+size+1
-            if yu > len(self.grid): yu = len(self.grid)
-            
-            xd = int(x)-size
-            if xd < 0: xd = 0
-            
-            xu = int(x)+size+1
-            if xu > len(self.grid[0]): xu = len(self.grid[0])
+                xThread = threading.Thread(target= self.expandNode, args=(openNodes, deepcopy(Arobot), steerings, directions))
+                threadsList.append(xThread)
+                xThread.start()
 
-            
-            zone_proggress = self.closed[yd:yu, xd:xu, :].sum()
-            if zone_proggress > orient_segments * 4 * size * size * 0.1:
-                continue
-            
-            
-            
-
-            # check if we are done
-
-            if abs(y - self.goal[0]) < 10 and abs(x - self.goal[1]) < 10:
+            if finishNode != None:
+                winnerNode = finishNode
                 found = True
-                # print '###### A* search successful'
-
-            else:
-                
-                # expand winning element and add to new open list
-                
-                for direct in directions:
-                    over_explore_cost = None
-                    for steering in delta:
-                        robot.set(x, y, orient)
-                        robot.num_collisions = 0
-                        robot = robot.move(self.grid, steering, robotDist * direct)
-                        
-                        y2 = robot.y
-                        x2 = robot.x
-                        orient2 = robot.orientation #int((robot.orientation + (orient_range / 2)) // orient_range)
-                        colission = robot.num_collisions
-                        
-                        YBin = int(y2)
-                        XBin = int(x2)
-                        OrientBin = int(((orient2 + (orient_range / 2)) // orient_range) % orient_segments)
-    
-                        if y2 >= 0 and y2 < len(self.grid) and x2 >= 0 and x2 < len(self.grid[0]):
-                            if self.closed[YBin, XBin, OrientBin] == 0 and self.grid[YBin, XBin] == 0 and colission == 0:
-                                if over_explore_cost == None:
-                                    over_explore_cost = self.closed[YBin-2:YBin+3, XBin-2:XBin+3, :].sum()
-                                    
-                                reverse_cost =  1 + 5 * (1 - direct)  
-                                steering_cost =  1 * abs(steering)
-                                g2 = g + (self.cost + 6 * over_explore_cost + steering_cost * 2) * reverse_cost
+                break
                             
-                                h2 = 3 *( 0.6*self.heuristic[YBin, XBin] + 1.3*self.radiation[YBin, XBin])
-                                
-                                f2 = g2 + h2
-                                open.append([f2, g2, h2, y2, x2, orient2])
-                                self.closed[YBin, XBin, OrientBin] = 1
-                                action[YBin, XBin, OrientBin, :] = [steering, direct]
-                            else:
-                                print(f"Close or collision: Node {node} cost{g} steer {steering} - > {YBin}, {XBin}, {OrientBin} collision = {colission}")
-                        else:
-                            print(f"Out of map: {y2}, {x2}, {orient2} collision = {colission}")
-                            
-            if count % 50 == 0 and not ax == None:
-                ax.cla()
-                expansion = self.closed.sum(2) / orient_segments
-                expansion += self.grid
-                ax.imshow(expansion, origin = 'lower')
-                plt.pause(0.00001)
-                #writer.grab_frame()
             count += 1
 
-        # extract the path
-        
-        if not ax == None:
-            ax.cla()
-            expansion = self.closed.sum(2) / orient_segments
-            expansion += self.grid
-            expansion[int(self.goal[0]), int(self.goal[1])] = 1
-            ax.imshow(expansion, origin = 'lower')
-            plt.pause(0.00001)
-            #writer.grab_frame()
+        self.path = [[winnerNode.y, winnerNode.x, winnerNode.direction]]
 
-        self.invpath = []
-        self.invpath.append([y, x])
-        robot.set(x, y, orient)
-        while abs(y - init[0]) > 10 or abs(x - init[1]) > 10:
-            YBin = int(y)
-            XBin = int(x)
-            OrientBin = int(((orient + (orient_range / 2)) // orient_range) % orient_segments)
-            steering, direct = action[YBin, XBin, OrientBin, :]
-            robot = robot.move(self.grid, steering, -robotDist * direct)
-                    
-            y = robot.y
-            x = robot.x
-            orient = robot.orientation
+        while winnerNode.prevNode != None:
+            winnerNode = winnerNode.prevNode
+            self.path.append([winnerNode.y, winnerNode.x, winnerNode.direction])
 
-            self.invpath.append([y, x])
+        self.path.reverse()
+        self.path.pop()
+        self.path.append([self.goal[0], self.goal[1], 1])    
 
-        self.invpath.append([init[0], init[1]])
-        self.path = []
-        for i in range(len(self.invpath)):
-            self.path.append(self.invpath[len(self.invpath) - 1 - i])
-                        
-        self.path.append([self.goal[0], self.goal[1]])    
         self.path = np.array(self.path)
-        
-        if not ax == None:
-            ax.plot(self.path[:,1], self.path[:,0])
-            writer.grab_frame()
-            writer.finish()
-        
-        
-        # n = len(self.path)
-        # kernel = np.ones((7,1)) / 7
-        # self.path[1:n-1,:] = cv2.filter2D(self.path[1:n-1,:], -1, kernel)
-        # if not ax == None:
-        #     ax.plot(self.path[:,1], self.path[:,0])
-        #     plt.pause(0.0001)
-        
-        self.path = self.increase_resolution(4)
-        
-        return self.path
-        #return self.smooth(0.1, 0.3)
-        
+       
+        self.path = self.increase_resolution(2)
 
+        return self.path
+    
     def increase_resolution(self, scale = 3):
         new_number_points = (self.path.shape[0] - 1) * scale + 1
         
-        new_path = np.zeros((new_number_points, 2))
+        new_path = np.zeros((new_number_points, 3))
         
         for i in range(self.path.shape[0] - 1):
             for j in range(scale):
@@ -597,31 +375,5 @@ class plan_with_reverse:
         
         new_path[-1] = self.path[-1]
         
-        return new_path
+        return new_path  
         
-        
-        
-    def smooth(self, weight_data = 0.1, weight_smooth = 0.1, tolerance = 0.000001):
-    
-        self.spath = self.path.copy()
-    
-        change = tolerance
-        while change >= tolerance:
-            change = 0.0
-            for i in range(1, len(self.path)-1):
-                for j in range(len(self.path[0])):
-                    aux = self.spath[i,j]
-                    
-                    self.spath[i,j] += weight_data * (self.path[i,j] - self.spath[i,j])
-                    
-                    self.spath[i,j] += weight_smooth * (self.spath[i-1,j] + self.spath[i+1,j] - (2.0 * self.spath[i,j]))
-                    
-                    if i >= 2:
-                        self.spath[i,j] += 0.5 * weight_smooth * (2 * self.spath[i-1,j] - self.spath[i-2,j] - self.spath[i,j])
-                    if i <= len(self.path) - 3:
-                        self.spath[i,j] += 0.5 * weight_smooth * (2 * self.spath[i+1,j] - self.spath[i+2,j] - self.spath[i,j])
-                
-                    change += abs(aux - self.spath[i,j])
-        
-        return self.spath
-

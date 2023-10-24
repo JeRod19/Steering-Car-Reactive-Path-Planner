@@ -19,9 +19,12 @@ class enviroment:
         
         for row in range(self.grid.shape[0]):
             for col in range(self.grid.shape[1]):
-                row2 = self.scale[0] * row
-                col2 = self.scale[1] * col
-                val = round(self.map[row2:row2+self.scale[0], col2:col2+self.scale[1]].sum() / (self.scale[0] * self.scale[1]))
+                if row == 0 or col == 0 or row == self.grid.shape[0]-1 or col == self.grid.shape[1] - 1:
+                    val = 1
+                else:
+                    row2 = self.scale[0] * row
+                    col2 = self.scale[1] * col
+                    val = round(self.map[row2:row2+self.scale[0], col2:col2+self.scale[1]].sum() / (self.scale[0] * self.scale[1]))
                 self.grid[row,col] = val
     
         
@@ -54,10 +57,14 @@ class enviroment:
         camara += [y, x]
         
         horizon = np.matmul(robot.horizon, rotMat)
-        horizon += [y, x]
+        horizon += camara
 
         
-        xy = [[camara[1], camara[0]], [horizon[0,1], horizon[0,0]], [horizon[-1,1], horizon[-1,0]]]
+        #xy = [[camara[1], camara[0]], [horizon[0,1], horizon[0,0]], [horizon[-1,1], horizon[-1,0]]]
+        #xy = np.concatenate((camara, horizon))
+        xy = list([np.flip(camara)])
+        for p in horizon:
+            xy.append(np.flip(p))
         self.tria = patches.Polygon(xy, closed=True, edgecolor='g', facecolor="g", alpha = 0.5)
         
         ax.add_patch(self.rect)

@@ -1,7 +1,7 @@
 import math as m
 import numpy as np
 import random
-
+ 
 class steering_car:
 
     def __init__(self, length = 20, width = 10, pix_density = 6.51):
@@ -20,21 +20,17 @@ class steering_car:
         self.num_collisions    = 0
         self.num_steps         = 0            
         
-        self.camara = np.array([0, 0])
+        self.camara = np.array([0,  self.length // 2])
         
-        view_angle = m.pi * 100 / 180.0
+        angle = 120
+        view_angle = m.pi * angle / 180.0
         view_dist = 50 * pix_density 
+        view_dist = self.length * 5
         
-        horizon = np.array([
-            [view_dist*m.tan(view_angle/2), view_dist],  
-            [-view_dist*m.tan(view_angle/2), view_dist]
-            ])
-        
-        horizon_size =  int(np.ceil(np.linalg.norm(horizon[0,:] - horizon[1,:])))
-        
-        self.horizon = np.linspace(horizon[0], horizon[1], horizon_size)
-        
-    
+        self.horizon = []
+        for ang in np.linspace(view_angle/2, -view_angle/2, angle):
+            self.horizon.append([np.sin(ang) * view_dist, np.cos(ang) * view_dist])
+        self.horizon = np.array(self.horizon)
 
     def set(self, new_x, new_y, new_orientation):
 
@@ -42,50 +38,12 @@ class steering_car:
         self.y = float(new_y)
         self.orientation = float(new_orientation) % (2.0 * m.pi)
 
-
     def set_noise(self, new_s_noise, new_d_noise, new_m_noise):
         # makes it possible to change the noise parameters
         # this is often useful in particle filters
         self.steering_noise     = float(new_s_noise)
         self.distance_noise    = float(new_d_noise)
         self.measurement_noise = float(new_m_noise)
-    
-    def check_collision2(self, realGrid):
-        corners = np.array([[-self.width/2, self.length / 2],
-                            [self.width/2, self.length / 2],
-                            [self.width/2, -self.length / 2],
-                            [-self.width/2, -self.length / 2]])
-        
-        th = self.orientation
-        rotMat = np.array([[m.cos(th), -m.sin(th)],[m.sin(th), m.cos(th)]])
-        
-        corners = np.matmul(corners, rotMat)
-        corners += [self.y, self.x]
-        
-        for pt in range(4):
-            if (pt+1) % 2:
-                n = 2 * self.width
-            else:
-                n =2 * self.length
-                
-            p1 = corners[pt]
-            p2 = corners[(pt+1) % 4]
-            
-            y_pts = np.linspace(p1[0], p2[0], int(n), dtype = int)
-            x_pts = np.linspace(p1[1], p2[1], int(n), dtype = int)
-
-            
-            for i in range(len(y_pts)):
-                yp = y_pts[i]
-                xp = x_pts[i]
-                if yp < 0 or yp >= len(realGrid) or \
-                    xp < 0 or xp >= len(realGrid[0]) or \
-                        realGrid[yp][xp] > 0 :
-                    self.num_collisions += 1
-                    print(f"!! COLLISION !! p = [{yp},{xp}]")
-                    return False
-            
-        return True
     
     def check_collision(self, realGrid):
         # Define robot´s corners
@@ -129,8 +87,7 @@ class steering_car:
         dist =  m.sqrt((float(goal[1]) - self.x) ** 2 + (float(goal[0]) - self.y) ** 2)
         return dist < threshold
 
-    def move(self, realGrid, steering, distance, 
-             tolerance = 0.00001, max_steering_angle = m.pi / 4.0):
+    def move(self, realGrid, steering, distance, tolerance = 0.00001, max_steering_angle = m.pi / 4.0):
         
         if steering > max_steering_angle:
             steering = max_steering_angle
@@ -157,15 +114,17 @@ class steering_car:
         res.num_collisions    = self.num_collisions
         res.num_steps         = self.num_steps + 1
         res.camara            = self.camara
-        res.horizon            = self.horizon
+        res.horizon           = self.horizon
 
-        for i, orient in enumerate(np.linspace(self.orientation, self.orientation + turn, 5) % (2.0 * m.pi)):
+        steps = 5
+        for i, orient in enumerate(np.linspace(self.orientation, self.orientation + turn, steps) % (2.0 * m.pi)):
             res.orientation = orient
-            
+            i += 1
+
             if abs(turn) < tolerance:
                 # approximate by straight line motion              
-                res.x = self.x + (distance2 * m.cos(self.orientation)) * (i/3)
-                res.y = self.y + (distance2 * m.sin(self.orientation)) * (i/3)
+                res.x = self.x + (distance2 * m.cos(self.orientation)) * (i/steps)
+                res.y = self.y + (distance2 * m.sin(self.orientation)) * (i/steps)
     
             else:
                 # approximate bicycle model for motion
@@ -223,7 +182,7 @@ class steering_car:
         camara += [self.y, self.x]
         
         horizon = np.matmul(self.horizon, rotMat)
-        horizon += [self.y, self.x]
+        horizon += camara
         
         something_new = False
         for p in horizon:
@@ -248,10 +207,11 @@ class steering_car:
                 if Ry > 0 and Ry < len(realGrid) and \
                     Rx > 0 and Rx < len(realGrid[0]) and \
                     realGrid[Ry][Rx] == 1:
+                    if  senseGrid[Ry][Rx] == 0:
+                        something_new = True
                     senseGrid[Ry][Rx] = 1
                     ray_depth += 1
-                    something_new = True
-                    if ray_depth > 2:
+                    if ray_depth > 0:
                         break
                          
         
